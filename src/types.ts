@@ -83,3 +83,30 @@ export interface FileData {
     mimeType: string;
   };
 }
+
+export interface Document {
+  id: string;
+  name: string;
+  file_type: string;
+  original_filename: string;
+  content_text: string;
+  uploaded_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentChunk {
+  id: string;
+  document_id: string;
+  chunk_index: number;
+  content: string;
+  embedding?: number[];
+  created_at: string;
+}
+
+export interface SearchResult {
+  document_id: string;
+  document_name: string;
+  chunk_content: string;
+  similarity: number;
+}

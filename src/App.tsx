@@ -7,6 +7,8 @@ import PatientCard from './components/PatientCard';
 import PatientDetails from './components/PatientDetails';
 import CalendarView from './components/CalendarView';
 import AddPatientModal from './components/AddPatientModal';
+import { Login } from './components/Login';
+import { useAuth } from './contexts/AuthContext';
 import {
   Search,
   Plus,
@@ -28,10 +30,38 @@ import {
   UserPlus,
   Loader2,
   Trash2,
+  LogOut,
 } from 'lucide-react';
-import { getAIAdvisorResponse } from './services/geminiService';
+import { getAIAdvisorResponse, getAIAdvisorResponseWithRAG } from './services/geminiService';
+import { searchDocuments } from './services/documentService';
+import DocumentManager from './components/DocumentManager';
 
 const App: React.FC = () => {
+  const { user, loading } = useAuth();
+
+  // Show loading state while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="animate-spin text-rose-600 mx-auto mb-4" size={48} />
+          <p className="text-slate-600 font-medium">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!user) {
+    return <Login />;
+  }
+
+  return <MidwifeCareApp />;
+};
+
+// Main app component (only shown when authenticated)
+const MidwifeCareApp: React.FC = () => {
+  const { signOut } = useAuth();
   const [patients, setPatients] = useState<Patient[]>(() => {
     const saved = localStorage.getItem('sf-patients');
     return saved ? JSON.parse(saved) : MOCK_PATIENTS;
@@ -67,6 +97,7 @@ const App: React.FC = () => {
 
   const [attachedFile, setAttachedFile] = useState<{ name: string; data: FileData } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
 
   const [tasks, setTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('sf-tasks');
@@ -125,15 +156,56 @@ const App: React.FC = () => {
     if (!aiPrompt.trim()) return;
     setIsAiLoading(true);
     setAiResponse('Consultation en cours...');
-    const res = await getAIAdvisorResponse(
-      aiPrompt,
-      protocolText,
-      isStrictEnabled,
-      selectedPatient || undefined,
-      attachedFile?.data
-    );
-    setAiResponse(res || 'Une erreur est survenue.');
-    setIsAiLoading(false);
+
+    try {
+      let res: string;
+
+      // Si des documents sont sélectionnés, utiliser la recherche sémantique
+      if (selectedDocIds.length > 0) {
+        setAiResponse('Recherche dans les protocoles...');
+        const relevantChunks = await searchDocuments(aiPrompt, 5, selectedDocIds);
+        res = await getAIAdvisorResponseWithRAG(
+          aiPrompt,
+          relevantChunks,
+          isStrictEnabled,
+          selectedPatient || undefined
+        );
+      } else if (attachedFile || protocolText) {
+        // Fallback sur l'ancienne méthode si fichier attaché directement
+        res = await getAIAdvisorResponse(
+          aiPrompt,
+          protocolText,
+          isStrictEnabled,
+          selectedPatient || undefined,
+          attachedFile?.data
+        );
+      } else {
+        // Pas de documents, recherche sémantique dans tous les docs disponibles
+        const relevantChunks = await searchDocuments(aiPrompt, 3);
+        if (relevantChunks.length > 0) {
+          res = await getAIAdvisorResponseWithRAG(
+            aiPrompt,
+            relevantChunks,
+            false,
+            selectedPatient || undefined
+          );
+        } else {
+          res = await getAIAdvisorResponse(
+            aiPrompt,
+            undefined,
+            false,
+            selectedPatient || undefined
+          );
+        }
+      }
+
+      setAiResponse(res || 'Une erreur est survenue.');
+    } catch (error) {
+      console.error('Erreur consultation IA:', error);
+      setAiResponse('Une erreur est survenue lors de la consultation.');
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   const addTask = (e: React.FormEvent) => {
@@ -231,6 +303,13 @@ const App: React.FC = () => {
             >
               <UserPlus size={18} /> Nouvelle Patiente
             </button>
+            <button
+              onClick={signOut}
+              className="p-2 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-full transition-colors"
+              title="Déconnexion"
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </header>
 
@@ -285,50 +364,62 @@ const App: React.FC = () => {
                 </button>
                 {showProtocolEditor && (
                   <div className="px-6 pb-6 pt-2 space-y-4 border-t border-rose-50">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Texte du protocole</label>
-                        <textarea
-                          value={protocolText}
-                          onChange={(e) => setProtocolText(e.target.value)}
-                          placeholder="Protocole spécifique..."
-                          className="w-full h-32 p-4 bg-rose-50/30 border border-rose-100 rounded-2xl focus:ring-2 focus:ring-rose-200 text-sm resize-none outline-none"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Fichier PDF</label>
-                        <div
-                          onClick={() => !attachedFile && fileInputRef.current?.click()}
-                          className={`h-32 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${
-                            attachedFile
-                              ? 'border-rose-200 bg-rose-50/50'
-                              : 'border-slate-200 hover:border-rose-300 cursor-pointer bg-slate-50/50'
-                          }`}
-                        >
-                          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf" className="hidden" />
-                          {attachedFile ? (
-                            <div className="px-4 text-center">
-                              <FileText className="text-rose-600 mx-auto mb-1" size={24} />
-                              <p className="text-xs font-bold text-slate-700 truncate max-w-[150px]">{attachedFile.name}</p>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setAttachedFile(null);
-                                }}
-                                className="mt-2 text-[10px] text-rose-500 font-bold hover:underline flex items-center gap-1 mx-auto"
-                              >
-                                <X size={10} /> Supprimer
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <FileUp className="text-slate-400" size={24} />
-                              <p className="text-xs text-slate-500 font-bold">Importer un PDF</p>
-                            </>
-                          )}
+                    <DocumentManager
+                      selectedDocIds={selectedDocIds}
+                      onSelectionChange={setSelectedDocIds}
+                    />
+
+                    {/* Option pour texte manuel ou PDF ponctuel */}
+                    <details className="group">
+                      <summary className="text-xs font-bold text-slate-400 uppercase tracking-wider cursor-pointer hover:text-slate-600 flex items-center gap-2">
+                        <ChevronDown size={14} className="group-open:rotate-180 transition-transform" />
+                        Options avancées (texte/PDF ponctuel)
+                      </summary>
+                      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Texte du protocole</label>
+                          <textarea
+                            value={protocolText}
+                            onChange={(e) => setProtocolText(e.target.value)}
+                            placeholder="Protocole spécifique..."
+                            className="w-full h-32 p-4 bg-rose-50/30 border border-rose-100 rounded-2xl focus:ring-2 focus:ring-rose-200 text-sm resize-none outline-none"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Fichier PDF ponctuel</label>
+                          <div
+                            onClick={() => !attachedFile && fileInputRef.current?.click()}
+                            className={`h-32 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${
+                              attachedFile
+                                ? 'border-rose-200 bg-rose-50/50'
+                                : 'border-slate-200 hover:border-rose-300 cursor-pointer bg-slate-50/50'
+                            }`}
+                          >
+                            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf" className="hidden" />
+                            {attachedFile ? (
+                              <div className="px-4 text-center">
+                                <FileText className="text-rose-600 mx-auto mb-1" size={24} />
+                                <p className="text-xs font-bold text-slate-700 truncate max-w-[150px]">{attachedFile.name}</p>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAttachedFile(null);
+                                  }}
+                                  className="mt-2 text-[10px] text-rose-500 font-bold hover:underline flex items-center gap-1 mx-auto"
+                                >
+                                  <X size={10} /> Supprimer
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <FileUp className="text-slate-400" size={24} />
+                                <p className="text-xs text-slate-500 font-bold">Importer un PDF</p>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </details>
                   </div>
                 )}
               </div>

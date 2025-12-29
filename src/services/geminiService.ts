@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Patient, FileData } from '../types';
+import { Patient, FileData, SearchResult } from '../types';
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -109,6 +109,66 @@ TES RÈGLES :
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts }],
+      generationConfig: {
+        temperature: isStrict ? 0.1 : 0.7,
+      },
+    });
+
+    return result.response.text();
+  } catch (error) {
+    console.error('Gemini API Error:', error);
+    return `Désolé, une erreur est survenue lors de la consultation de l'assistant IA. Erreur: ${
+      error instanceof Error ? error.message : 'Inconnue'
+    }`;
+  }
+};
+
+/**
+ * Consultation IA avec contexte RAG (documents pertinents)
+ */
+export const getAIAdvisorResponseWithRAG = async (
+  prompt: string,
+  relevantChunks: SearchResult[],
+  isStrict: boolean = false,
+  patientContext?: Patient
+): Promise<string> => {
+  if (!genAI) {
+    return '⚠️ Fonctionnalité IA non disponible. Veuillez configurer VITE_GEMINI_API_KEY dans .env.local';
+  }
+
+  const contextText = patientContext
+    ? `Contexte patiente: ${patientContext.firstName} ${patientContext.lastName}, ${patientContext.status}.
+       Dernière visite: ${patientContext.lastVisit}.`
+    : '';
+
+  const documentsContext = relevantChunks.length > 0
+    ? `\n\nDOCUMENTS DE RÉFÉRENCE:\n${relevantChunks.map((chunk) =>
+        `--- Document: ${chunk.document_name} (pertinence: ${(chunk.similarity * 100).toFixed(1)}%) ---\n${chunk.chunk_content}`
+      ).join('\n\n')}`
+    : '';
+
+  let systemInstruction = `Tu es un assistant médical spécialisé pour les sages-femmes libérales en France.
+Réponds de manière professionnelle, concise et en français.`;
+
+  if (isStrict && relevantChunks.length > 0) {
+    systemInstruction = `Tu es un assistant strict basé EXCLUSIVEMENT sur les documents fournis.
+TES RÈGLES :
+1. Tu ne dois utiliser QUE les informations contenues dans les documents fournis.
+2. Si la réponse à la question n'est pas dans les documents, réponds exactement : "Désolé, cette information ne figure pas dans les documents fournis."
+3. N'utilise aucune connaissance externe, même si elle te semble correcte médicalement.
+4. Cite les parties des documents pour justifier ta réponse.`;
+  } else if (relevantChunks.length > 0) {
+    systemInstruction += `\nUtilise les documents fournis comme source prioritaire pour ta réponse.`;
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({
+      model: 'models/gemini-2.5-flash',
+      systemInstruction,
+    });
+
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `${contextText}${documentsContext}\n\nQuestion de la sage-femme: ${prompt}` }] }],
       generationConfig: {
         temperature: isStrict ? 0.1 : 0.7,
       },
