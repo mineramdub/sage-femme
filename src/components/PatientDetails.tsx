@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Patient, Visit, PatientStatus } from '../types';
 import {
   Activity,
@@ -167,8 +169,8 @@ const PatientDetails: React.FC<PatientDetailsProps> = ({ patient, onClose, onUpd
                   <p className="font-black text-xl uppercase tracking-widest">Consultation IA...</p>
                 </div>
               ) : (
-                <div className="prose prose-rose max-w-none text-slate-700 font-medium leading-relaxed whitespace-pre-wrap bg-rose-50/20 p-8 rounded-[2rem] border border-rose-50 shadow-inner">
-                  {insight.content}
+                <div className="prose prose-rose max-w-none text-slate-700 font-medium leading-relaxed bg-rose-50/20 p-8 rounded-[2rem] border border-rose-50 shadow-inner">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{insight.content}</ReactMarkdown>
                 </div>
               )}
             </div>

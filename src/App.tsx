@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Patient, PatientStatus, Appointment, AppointmentType, Task, FileData } from './types';
 import { MOCK_PATIENTS, TASK_COLORS } from './constants';
 import PatientCard from './components/PatientCard';
@@ -350,8 +352,8 @@ const App: React.FC = () => {
 
               {(aiResponse || isAiLoading) && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-rose-100">
-                  <div className="prose prose-rose max-w-none text-slate-700 leading-relaxed whitespace-pre-wrap">
-                    {aiResponse}
+                  <div className="prose prose-rose max-w-none text-slate-700 leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiResponse}</ReactMarkdown>
                   </div>
                 </div>
               )}

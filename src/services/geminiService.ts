@@ -31,7 +31,7 @@ Réponds de manière concise, sous forme de tirets, sur un ton professionnel.`;
 
   try {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'models/gemini-2.5-flash',
       systemInstruction,
     });
 
@@ -98,7 +98,7 @@ TES RÈGLES :
 
   try {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'models/gemini-2.5-flash',
       systemInstruction,
     });
 
@@ -133,7 +133,7 @@ export const summarizePatientHistory = async (patient: Patient): Promise<string>
 
   try {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'models/gemini-2.5-flash',
       systemInstruction:
         'Tu es une sage-femme. Fais un résumé synthétique des points clés, antécédents et points de vigilance.',
     });
